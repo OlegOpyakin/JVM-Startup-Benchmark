@@ -2,6 +2,10 @@
 
 set -e
 
+#
+# This file contains configuration and main script 
+#
+
 # ============================================
 # CONFIGURATION - Set your JVM paths here
 # ============================================
@@ -43,162 +47,13 @@ echo "Timestamp: $TIMESTAMP"
 echo "Number of runs: $NUM_RUNS"
 echo ""
 
-# Create results directory
+# Create results directory and source scripts
 mkdir -p "$RESULTS_DIR"
-
-# Build with Maven
-build_benchmark() {
-    echo -e "${YELLOW}Building benchmark with Maven...${NC}"
-    mvn clean package -q
-    
-    if [ -f "$BENCHMARK_JAR" ]; then
-        echo -e "${GREEN}Build successful: $BENCHMARK_JAR${NC}"
-    else
-        echo -e "${RED}Build failed: JAR not found${NC}"
-        exit 1
-    fi
-    echo ""
-}
-
-# Run benchmark with a specific JVM
-run_jvm_benchmark() {
-    local jvm_name=$1
-    local jvm_path=$2
-    local output_file="$RESULTS_DIR/${jvm_name}.csv"
-    local time_file="$RESULTS_DIR/${jvm_name}_times.txt"
-    
-    if [ ! -f "$jvm_path" ]; then
-        echo -e "${RED}Skipping $jvm_name: JVM not found at $jvm_path${NC}"
-        echo -e "${YELLOW}Please update the path in the configuration section${NC}"
-        echo ""
-        return
-    fi
-    
-    echo -e "${GREEN}Running benchmark: $jvm_name (${NUM_RUNS} runs)${NC}"
-    echo "JVM Path: $jvm_path"
-    echo "Output: $output_file"
-    
-    for run in $(seq 1 $NUM_RUNS); do
-        echo -e "${YELLOW}  Run $run/$NUM_RUNS...${NC}"
-        
-        # Measure total execution time
-        local start_time=$(python3 -c "import time; print(int(time.time() * 1000))")
-        
-        "$jvm_path" -jar "$BENCHMARK_JAR" "$output_file" "$run" 2>&1 | grep -E "(Benchmark Results|Average Latency|P99 Latency|Total Execution|Improvement)"
-        
-        local end_time=$(python3 -c "import time; print(int(time.time() * 1000))")
-        local total_time=$((end_time - start_time))
-        
-        echo "$total_time" >> "$time_file"
-        echo -e "${GREEN}  Completed run $run in ${total_time}ms${NC}"
-    done
-    
-    echo ""
-}
-
-# Build and run GraalVM Native Image
-run_native_image_benchmark() {
-    local output_file="$RESULTS_DIR/graalvm_native.csv"
-    local time_file="$RESULTS_DIR/graalvm_native_times.txt"
-    local native_binary="target/jvm-benchmark-native"
-    
-    if [ ! -f "$GRAALVM_NATIVE_PATH" ]; then
-        echo -e "${RED}Skipping GraalVM Native Image: native-image tool not found at $GRAALVM_NATIVE_PATH${NC}"
-        echo -e "${YELLOW}Please update the path in the configuration section${NC}"
-        echo ""
-        return
-    fi
-    
-    echo -e "${GREEN}Building GraalVM Native Image with Maven...${NC}"
-
-    # GraalVM Native Image compilation
-    mvn package -Pnative -q 2>&1 | grep -E "(Finished|seconds)" || true
-    
-    if [ ! -f "$native_binary" ]; then
-        echo -e "${RED}Native image build failed or not found at $native_binary${NC}"
-        return
-    fi
-    
-    echo -e "${GREEN}Running GraalVM Native Image benchmark (${NUM_RUNS} runs)${NC}"
-    echo "Binary: $native_binary"
-    echo "Output: $output_file"
-    
-    for run in $(seq 1 $NUM_RUNS); do
-        echo -e "${YELLOW}  Run $run/$NUM_RUNS...${NC}"
-        
-        # Measure total execution time
-        local start_time=$(python3 -c "import time; print(int(time.time() * 1000))")
-        
-        "$native_binary" "$output_file" "$run" 2>&1 | grep -E "(Benchmark Results|Average Latency|P99 Latency|Total Execution|Improvement)"
-        
-        local end_time=$(python3 -c "import time; print(int(time.time() * 1000))")
-        local total_time=$((end_time - start_time))
-        
-        echo "$total_time" >> "$time_file"
-        echo -e "${GREEN}  Completed run $run in ${total_time}ms${NC}"
-    done
-    
-    echo ""
-}
-
-# Build AOT cache for Leyden
-build_leyden_aot() {
-    local cache_file="app-cds.jsa"
-    
-    if [ ! -f "$OPENJDK_LEYDEN_PATH" ]; then
-        echo -e "${RED}Skipping Leyden AOT build: JVM not found${NC}"
-        return
-    fi
-    
-    echo -e "${YELLOW}Building Leyden AOT cache...${NC}"
-    # Create training run to generate AOT cache
-    "$OPENJDK_LEYDEN_PATH" -XX:AOTMode=record -XX:AOTConfiguration=app -XX:AOTCacheOutput="$cache_file" \
-        -jar "$BENCHMARK_JAR" "$RESULTS_DIR/leyden_training.csv" "1" 2>&1 | grep -v "^$"
-    
-    if [ -f "$cache_file" ]; then
-        echo -e "${GREEN}AOT cache built: $cache_file${NC}"
-    else
-        echo -e "${YELLOW}AOT cache not created (feature may not be available in this build)${NC}"
-    fi
-    echo ""
-}
-
-# Run OpenJDK Leyden with AOT
-run_leyden_aot_benchmark() {
-    local cache_file="app-cds.jsa"
-    local output_file="$RESULTS_DIR/openjdk_leyden_aot.csv"
-    local time_file="$RESULTS_DIR/openjdk_leyden_aot_times.txt"
-    
-    if [ ! -f "$OPENJDK_LEYDEN_PATH" ]; then
-        echo -e "${RED}Skipping Leyden AOT: JVM not found${NC}"
-        return
-    fi
-    
-    if [ ! -f "$cache_file" ]; then
-        echo -e "${YELLOW}Skipping Leyden AOT: cache file not found${NC}"
-        return
-    fi
-    
-    echo -e "${GREEN}Running OpenJDK Leyden with AOT (${NUM_RUNS} runs)${NC}"
-    echo "Output: $output_file"
-    
-    for run in $(seq 1 $NUM_RUNS); do
-        echo -e "${YELLOW}  Run $run/$NUM_RUNS...${NC}"
-        
-        local start_time=$(python3 -c "import time; print(int(time.time() * 1000))")
-        
-        "$OPENJDK_LEYDEN_PATH" -XX:AOTCache="$cache_file" \
-            -jar "$BENCHMARK_JAR" "$output_file" "$run" 2>&1 | grep -E "(Benchmark Results|Average Latency|P99 Latency|Total Execution|Improvement)"
-        
-        local end_time=$(python3 -c "import time; print(int(time.time() * 1000))")
-        local total_time=$((end_time - start_time))
-        
-        echo "$total_time" >> "$time_file"
-        echo -e "${GREEN}  Completed run $run in ${total_time}ms${NC}"
-    done
-    
-    echo ""
-}
+source "./scripts/shell/build-benchmark.sh"
+source "./scripts/shell/build-leyden-aot.sh"
+source "./scripts/shell/run-jvm-benchmark.sh"
+source "./scripts/shell/run-leyden-aot-benchmark.sh"
+source "./scripts/shell/run-native-image-benchmark.sh"
 
 # Main execution
 main() {

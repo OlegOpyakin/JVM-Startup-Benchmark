@@ -49,5 +49,3 @@ __pycache__/
 *.so
 .Python
 /*env
-
-/scripts
