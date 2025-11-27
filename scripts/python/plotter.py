@@ -1,76 +1,9 @@
-#!/usr/bin/env python3
-
 import os
-import sys
-import glob
-import pandas as pd
 import matplotlib.pyplot as plt
-import numpy as np
-from pathlib import Path
 
 # Configuration for outlier filtering
 MAX_LATENCY_US = 100  # Filter out latencies above this (in microseconds)
 USE_OUTLIER_FILTER = True  # Set to False to disable filtering
-
-def read_benchmark_results(results_dir):
-    """Read all CSV files from the results directory."""
-    csv_files = glob.glob(os.path.join(results_dir, "*.csv"))
-    
-    if not csv_files:
-        print(f"No CSV files found in {results_dir}")
-        sys.exit(1)
-    
-    results = {}
-    for csv_file in csv_files:
-        filename = os.path.basename(csv_file)
-        # Extract JVM name from filename
-        jvm_name = filename.replace('.csv', '')
-        
-        # Skip training files
-        if 'training' in jvm_name.lower():
-            continue
-        
-        try:
-            df = pd.read_csv(csv_file)
-            if not df.empty:
-                # Sort by timestamp only to ensure proper time ordering
-                df = df.sort_values(by='timestamp_ms').reset_index(drop=True)
-                
-                # Check if 'run' column exists (new format)
-                if 'run' in df.columns:
-                    num_runs = df['run'].nunique()
-                    print(f"Loaded {len(df)} measurements from {filename} ({num_runs} runs)")
-                else:
-                    print(f"Loaded {len(df)} measurements from {filename} (1 run)")
-                results[jvm_name] = df
-        except Exception as e:
-            print(f"Error reading {csv_file}: {e}")
-    
-    return results
-
-def get_total_times(results_dir):
-    """Read total execution times from time files."""
-    time_files = glob.glob(os.path.join(results_dir, "*_times.txt"))
-    
-    times = {}
-    for time_file in time_files:
-        filename = os.path.basename(time_file)
-        jvm_name = filename.replace("_times.txt", "")
-        
-        try:
-            with open(time_file, 'r') as f:
-                time_values = [int(line.strip()) for line in f if line.strip()]
-                if time_values:
-                    # Store mean and std
-                    times[jvm_name] = {
-                        'mean': np.mean(time_values),
-                        'std': np.std(time_values),
-                        'values': time_values
-                    }
-        except Exception as e:
-            print(f"Error reading {time_file}: {e}")
-    
-    return times
 
 def filter_outliers(df, max_latency_us=MAX_LATENCY_US):
     """Filter out extreme latency outliers for better visualization."""
@@ -86,6 +19,7 @@ def filter_outliers(df, max_latency_us=MAX_LATENCY_US):
         print(f"  Filtered {removed} outliers (>{max_latency_us} μs) for clearer visualization")
     
     return filtered_df
+
 
 def plot_latency_vs_time(results, output_dir):
     """Plot latency vs time for all JVMs on the same graph with error bands."""
@@ -145,6 +79,7 @@ def plot_latency_vs_time(results, output_dir):
     print(f"Saved: {output_file}")
     plt.close()
 
+
 def plot_individual_latencies(results, output_dir):
     """Plot individual latency graphs for each JVM."""
     for jvm_name, df in results.items():
@@ -182,6 +117,7 @@ def plot_individual_latencies(results, output_dir):
         plt.savefig(output_file, dpi=300)
         print(f"Saved: {output_file}")
         plt.close()
+
 
 def plot_startup_comparison(results, output_dir):
     """Plot bar chart comparing average latency during startup phase with error bars."""
@@ -234,6 +170,7 @@ def plot_startup_comparison(results, output_dir):
     print(f"Saved: {output_file}")
     plt.close()
 
+
 def plot_peak_comparison(results, output_dir):
     """Plot bar chart comparing average latency during peak phase with error bars."""
     jvm_names = []
@@ -284,6 +221,7 @@ def plot_peak_comparison(results, output_dir):
     print(f"Saved: {output_file}")
     plt.close()
 
+
 def plot_total_execution_time(times, output_dir):
     """Plot total execution time comparison with error bars."""
     if not times:
@@ -319,93 +257,3 @@ def plot_total_execution_time(times, output_dir):
     plt.savefig(output_file, dpi=300)
     print(f"Saved: {output_file}")
     plt.close()
-
-def generate_summary_report(results, times, output_dir):
-    """Generate a text summary report with statistics."""
-    report_file = os.path.join(output_dir, 'benchmark_summary.txt')
-    
-    with open(report_file, 'w') as f:
-        f.write("=" * 60 + "\n")
-        f.write("JVM BENCHMARK SUMMARY REPORT\n")
-        f.write("=" * 60 + "\n\n")
-        
-        for jvm_name, df in results.items():
-            f.write(f"\n{jvm_name.upper()}\n")
-            f.write("-" * 60 + "\n")
-            
-            # Check if multiple runs
-            if 'run' in df.columns:
-                num_runs = df['run'].nunique()
-                f.write(f"Number of runs: {num_runs}\n\n")
-            
-            warmup = df[df['phase'] == 'warmup']
-            peak = df[df['phase'] == 'peak']
-            
-            if not warmup.empty:
-                f.write(f"Warmup Phase:\n")
-                avg = warmup['latency_ns'].mean() / 1000
-                std = warmup['latency_ns'].std() / 1000
-                f.write(f"  Average Latency: {avg:.2f} ± {std:.2f} μs\n")
-                f.write(f"  Median Latency:  {warmup['latency_ns'].median() / 1000:.2f} μs\n")
-                f.write(f"  P99 Latency:     {warmup['latency_ns'].quantile(0.99) / 1000:.2f} μs\n")
-            
-            if not peak.empty:
-                f.write(f"\nPeak Performance Phase:\n")
-                avg = peak['latency_ns'].mean() / 1000
-                std = peak['latency_ns'].std() / 1000
-                f.write(f"  Average Latency: {avg:.2f} ± {std:.2f} μs\n")
-                f.write(f"  Median Latency:  {peak['latency_ns'].median() / 1000:.2f} μs\n")
-                f.write(f"  P99 Latency:     {peak['latency_ns'].quantile(0.99) / 1000:.2f} μs\n")
-            
-            if jvm_name in times:
-                f.write(f"\nTotal Execution Time: {times[jvm_name]['mean'] / 1000:.3f} ± {times[jvm_name]['std'] / 1000:.3f}s\n")
-        
-        f.write("\n" + "=" * 60 + "\n")
-    
-    print(f"Saved: {report_file}")
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 plot_results.py <results_directory>")
-        sys.exit(1)
-    
-    results_dir = sys.argv[1]
-    
-    if not os.path.isdir(results_dir):
-        print(f"Error: {results_dir} is not a valid directory")
-        sys.exit(1)
-    
-    print(f"Reading benchmark results from: {results_dir}")
-    print("=" * 60)
-    
-    # Read data
-    results = read_benchmark_results(results_dir)
-    times = get_total_times(results_dir)
-    
-    if not results:
-        print("No valid benchmark results found!")
-        sys.exit(1)
-    
-    # Create plots directory
-    plots_dir = os.path.join(results_dir, "plots")
-    os.makedirs(plots_dir, exist_ok=True)
-    
-    print("\nGenerating plots...")
-    print("=" * 60)
-    
-    # Generate all plots
-    plot_latency_vs_time(results, plots_dir)
-    plot_individual_latencies(results, plots_dir)
-    plot_startup_comparison(results, plots_dir)
-    plot_peak_comparison(results, plots_dir)
-    plot_total_execution_time(times, plots_dir)
-    
-    # Generate summary report
-    generate_summary_report(results, times, plots_dir)
-    
-    print("\n" + "=" * 60)
-    print(f"All plots saved to: {plots_dir}")
-    print("=" * 60)
-
-if __name__ == "__main__":
-    main()
