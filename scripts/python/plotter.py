@@ -1,22 +1,26 @@
 import os
 import matplotlib.pyplot as plt
-
 # Configuration for outlier filtering
-MAX_LATENCY_US = 100  # Filter out latencies above this (in microseconds)
+# We now use a quantile-based filter: keep data up to this latency quantile.
+OUTLIER_QUANTILE = 0.999  # keep 99.9% of lowest latencies, drop top 0.1%
 USE_OUTLIER_FILTER = True  # Set to False to disable filtering
 
-def filter_outliers(df, max_latency_us=MAX_LATENCY_US):
-    """Filter out extreme latency outliers for better visualization."""
-    if not USE_OUTLIER_FILTER:
+
+def filter_outliers(df, quantile=OUTLIER_QUANTILE):
+    """Filter out extreme latency outliers based on a quantile threshold."""
+    if not USE_OUTLIER_FILTER or df.empty:
         return df
     
-    # Convert to microseconds and filter
-    max_latency_ns = max_latency_us * 1000
-    filtered_df = df[df['latency_ns'] <= max_latency_ns].copy()
+    cutoff_ns = df['latency_ns'].quantile(quantile)
+    # If we can't compute a cutoff (e.g., single row), skip filtering
+    if cutoff_ns is None:
+        return df
     
+    filtered_df = df[df['latency_ns'] <= cutoff_ns].copy()
     removed = len(df) - len(filtered_df)
     if removed > 0:
-        print(f"  Filtered {removed} outliers (>{max_latency_us} μs) for clearer visualization")
+        cutoff_us = cutoff_ns / 1000.0
+        print(f"  Filtered {removed} outliers (>~{cutoff_us:.1f} μs, above {quantile*100:.2f}th percentile) for clearer visualization")
     
     return filtered_df
 
@@ -68,7 +72,7 @@ def plot_latency_vs_time(results, output_dir):
     plt.ylabel('Latency (μs)', fontsize=12)
     title = 'JVM Latency Over Time Comparison (mean ± std)'
     if USE_OUTLIER_FILTER:
-        title += f' [outliers >{MAX_LATENCY_US}μs filtered]'
+        title += f' [top {(1-OUTLIER_QUANTILE)*100:.2f}% outliers filtered]'
     plt.title(title, fontsize=14, fontweight='bold')
     plt.legend(loc='best', fontsize=10)
     plt.grid(True, alpha=0.3)
@@ -107,7 +111,7 @@ def plot_individual_latencies(results, output_dir):
         plt.ylabel('Latency (μs)', fontsize=12)
         title = f'{jvm_name.replace("_", " ").title()} - Latency Over Time'
         if USE_OUTLIER_FILTER:
-            title += f' [outliers >{MAX_LATENCY_US}μs filtered]'
+            title += f' [top {(1-OUTLIER_QUANTILE)*100:.2f}% outliers filtered]'
         plt.title(title, fontsize=14, fontweight='bold')
         plt.legend(loc='best')
         plt.grid(True, alpha=0.3)
